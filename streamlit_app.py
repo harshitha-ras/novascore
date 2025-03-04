@@ -1,151 +1,127 @@
-import streamlit as st
-import pandas as pd
-import math
-from pathlib import Path
-
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
-
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
-
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
-
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
-
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
-
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
-
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
+import numpy as np
+from flask import Flask, request, jsonify
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error, r2_score
+from flask import Flask, request, jsonify
+from flask_cors import CORS  # Import Flask-CORS
 
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
 
-st.header(f'GDP in {to_year}', divider='gray')
 
-''
 
-cols = st.columns(4)
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+CORS(app, resources={r"/*": {"origins": "https://your-allowed-origin.com"}})
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
 
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
+# --- Model and Utility Functions ---
+def calculate_credit_score(subscriptions, travel, social_media, credit_history, age, employment, loans, transactions):
+    subscription_points = (float(subscriptions) / 12) * 100
+    travel_points = (float(travel) / 5) * 100
+    social_media_points = (float(social_media) / 10000) * 100
+    credit_history_points = (float(credit_history) - 300) / 5.5
+    age_points = (float(age) - 18) / 0.62
+    employment_points = 100 if employment == 'Employed' else 75 if employment == 'Self-employed' else 25
+    loans_points = (5 - float(loans)) * 20
+    transactions_points = (float(transactions) / 10000) * 100
+    total_score = (subscription_points + travel_points + social_media_points +
+                   credit_history_points + age_points + employment_points +
+                   loans_points + transactions_points)
+    return total_score
 
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
+def generate_dataset(num_samples=1000):
+    np.random.seed(42)
+    subscriptions = np.random.randint(1, 13, num_samples).astype(float)
+    travel = np.random.randint(0, 6, num_samples).astype(float)
+    social_media = np.random.randint(100, 10001, num_samples).astype(float)
+    credit_history = np.random.randint(300, 851, num_samples).astype(float)
+    age = np.random.randint(18, 81, num_samples).astype(float)
+    employment = np.random.choice(['Employed', 'Self-employed', 'Unemployed'], num_samples)
+    loans = np.random.randint(0, 6, num_samples).astype(float)
+    transactions = np.random.randint(1000, 10001, num_samples).astype(float)
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+    X = np.column_stack((subscriptions, travel, social_media, credit_history, age, employment, loans, transactions))
+    y = np.array([calculate_credit_score(*row) for row in X])
+    return X, y
+
+# --- Prepare the dataset and train the model ---
+X, y = generate_dataset()
+# Encode employment: 2 for 'Employed', 1 for 'Self-employed', 0 for 'Unemployed'
+X = np.column_stack((X[:, :5], np.where(X[:, 5]=='Employed', 2, np.where(X[:, 5]=='Self-employed', 1, 0)), X[:, 6:]))
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
+rf_model.fit(X_train, y_train)
+
+y_pred = rf_model.predict(X_test)
+mse = mean_squared_error(y_test, y_pred)
+r2 = r2_score(y_test, y_pred)
+print(f"Mean Squared Error: {mse:.2f}")
+print(f"R-squared Score: {r2:.2f}")
+
+feature_names = ['Subscriptions', 'Travel', 'Social Media', 'Credit History', 'Age', 'Employment', 'Loans', 'Transactions']
+
+def predict_credit_score(subscriptions, travel, social_media, credit_history, age, employment, loans, transactions):
+    employment_encoded = 2 if employment == 'Employed' else 1 if employment == 'Self-employed' else 0
+    input_data = np.array([[subscriptions, travel, social_media, credit_history, age, employment_encoded, loans, transactions]])
+    predicted_score = rf_model.predict(input_data)[0]
+
+    feature_importance = rf_model.feature_importances_
+    feature_importance_dict = dict(zip(feature_names, feature_importance))
+    sorted_importance = sorted(feature_importance_dict.items(), key=lambda x: x[1], reverse=True)
+
+    suggestions = []
+    for feature, importance in sorted_importance:
+        if feature == 'Subscriptions' and subscriptions < 12:
+            suggestions.append(f"Increase the number of subscriptions (current: {subscriptions})")
+        elif feature == 'Travel' and travel < 5:
+            suggestions.append(f"Increase travel frequency (current: {travel})")
+        elif feature == 'Social Media' and social_media < 10000:
+            suggestions.append(f"Increase social media interactions (current: {social_media})")
+        elif feature == 'Credit History' and credit_history < 850:
+            suggestions.append(f"Improve credit history (current: {credit_history})")
+        elif feature == 'Employment' and employment != 'Employed':
+            suggestions.append(f"Seek full-time employment (current: {employment})")
+        elif feature == 'Loans' and loans > 0:
+            suggestions.append(f"Reduce the number of loans (current: {loans})")
+        elif feature == 'Transactions' and transactions < 10000:
+            suggestions.append(f"Increase transaction volume (current: {transactions})")
+
+    # Create a flag based on the predicted score
+    flag = "Approved" if predicted_score >= 450 else "Not Approved"
+
+    return {
+        "predicted_score": predicted_score,
+        "feature_importance": feature_importance_dict,
+        "suggestions": suggestions,
+        "flag": flag
+    }
+
+
+# --- API Endpoint ---
+@app.route('/predict', methods=['POST'])
+def predict():
+    data = request.get_json()
+    required_fields = ['subscriptions', 'travel', 'social_media', 'credit_history', 'age', 'employment', 'loans', 'transactions']
+    missing_fields = [field for field in required_fields if field not in data]
+    if missing_fields:
+        return jsonify({'error': f'Missing fields: {missing_fields}'}), 400
+
+    try:
+        subscriptions = float(data['subscriptions'])
+        travel = float(data['travel'])
+        social_media = float(data['social_media'])
+        credit_history = float(data['credit_history'])
+        age = float(data['age'])
+        employment = data['employment']
+        loans = float(data['loans'])
+        transactions = float(data['transactions'])
+    except Exception:
+        return jsonify({'error': 'Invalid data format. Please check your input.'}), 400
+
+    result = predict_credit_score(subscriptions, travel, social_media, credit_history, age, employment, loans, transactions)
+    return jsonify(result)
+
+if __name__ == '__main__':
+    app.run(debug=True)
